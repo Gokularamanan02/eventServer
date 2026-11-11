@@ -1,11 +1,15 @@
-const express = require("express");
+import express from "express";
+import {
+  getAdminStats,
+  getAllUsers,
+  deleteUser,
+} from "../Controller/adminController.js";
+import { protect, adminOnly } from "../middlewares/authMiddleware.js";
+
 const router = express.Router();
-const authMiddleware = require("../middlewares/authMiddleware");
-const adminMiddleware = require("../middlewares/adminMiddleware");
 
-// Example: Admin dashboard info
-router.get("/dashboard", authMiddleware, adminMiddleware, (req, res) => {
-  res.json({ success: true, message: "Admin dashboard data" });
-});
+router.get("/stats", protect, adminOnly, getAdminStats);
+router.get("/users", protect, adminOnly, getAllUsers);
+router.delete("/users/:id", protect, adminOnly, deleteUser);
 
-module.exports = router;
+export default router;

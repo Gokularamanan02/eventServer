@@ -1,8 +1,9 @@
 {
   "name": "project-task-back-2",
   "version": "1.0.0",
-  "description": "",
+  "description": "Event Management System Backend API",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js"

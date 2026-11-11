@@ -7,48 +7,59 @@ export const createRegistration = async (req, res) => {
     const { college, department, year, phone } = req.body;
     const eventId = req.params.eventId;
 
-    if (!college || !department || !year || !phone) {
-      return res.status(400).json({ message: "All fields are required" });
+    if (!college || !phone) {
+      return res.status(400).json({ message: "College name and phone number are required" });
     }
 
     const event = await Event.findById(eventId);
-    if (!event) return res.status(404).json({ message: "Event not found" });
+    if (!event) {
+      return res.status(404).json({ message: "Event not found" });
+    }
 
+    // Check capacity if set
+    if (event.capacity && event.registrations && event.registrations.length >= event.capacity) {
+      return res.status(400).json({ message: "Event capacity has been reached" });
+    }
+
+    // Check if user already registered for this event
     const existing = await Registration.findOne({
       event: eventId,
       user: req.user._id,
     });
 
-    if (existing) return res.status(400).json({ message: "Already registered" });
+    if (existing) {
+      return res.status(400).json({ message: "You have already registered for this event" });
+    }
 
-    // ✅ Create registration in collection
+    // Create registration in collection
     const registration = await Registration.create({
       eventName: event.title,
       event: eventId,
       user: req.user._id,
-      college,
-      department,
-      year,
-      phone,
+      college: college.trim(),
+      department: department ? department.trim() : "",
+      year: year ? year.trim() : "",
+      phone: phone.trim(),
       status: "pending",
     });
 
-    // ✅ Push same registration _id into embedded array
+    // Also push to embedded registrations on Event document
     event.registrations.push({
-      _id: registration._id, // <--- IMPORTANT
+      _id: registration._id,
       user: req.user._id,
-      college,
-      department,
-      year,
-      phone,
+      college: college.trim(),
+      department: department ? department.trim() : "",
+      year: year ? year.trim() : "",
+      phone: phone.trim(),
       status: "pending",
     });
 
     await event.save();
 
     res.status(201).json({
-      message: "Registration submitted",
-      registration, // return backend _id
+      success: true,
+      message: "Registration submitted successfully",
+      registration,
     });
   } catch (err) {
     console.error("Registration error:", err);
@@ -56,16 +67,18 @@ export const createRegistration = async (req, res) => {
   }
 };
 
-/* ================= GET USER REGISTRATIONS ================= */
+/* ================= GET USER'S REGISTRATIONS ================= */
 export const getMyRegistrations = async (req, res) => {
   try {
     const registrations = await Registration.find({ user: req.user._id })
-      .populate("event", "title date")
-      .populate("user", "name email");
+      .populate("event")
+      .populate("user", "name email")
+      .sort({ createdAt: -1 });
 
     res.json(registrations);
   } catch (err) {
-    res.status(500).json({ message: "Server error" });
+    console.error("getMyRegistrations error:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
@@ -73,48 +86,52 @@ export const getMyRegistrations = async (req, res) => {
 export const getAllRegistrations = async (req, res) => {
   try {
     const registrations = await Registration.find()
-      .populate("event", "title date")
-      .populate("user", "name email");
+      .populate("event", "title date time venue category")
+      .populate("user", "name email")
+      .sort({ createdAt: -1 });
 
     res.json(registrations);
   } catch (err) {
-    res.status(500).json({ message: "Server error" });
+    console.error("getAllRegistrations error:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
-/* ================= UPDATE STATUS (ADMIN) ================= */
+/* ================= UPDATE REGISTRATION STATUS (ADMIN) ================= */
 export const updateRegistrationStatus = async (req, res) => {
   try {
-    const status = req.path.includes("approve")
-      ? "approved"
-      : req.path.includes("reject")
-      ? "rejected"
-      : null;
+    let status = req.body?.status;
 
-    if (!status) return res.status(400).json({ message: "Invalid status" });
+    // Check if route is /:id/approve or /:id/reject
+    if (req.path.includes("approve")) status = "approved";
+    if (req.path.includes("reject")) status = "rejected";
 
-    // 🔥 Find event containing this embedded registration
-    const event = await Event.findOne({ "registrations._id": req.params.id });
-    if (!event)
-      return res.status(404).json({ message: "Event not found for registration" });
+    if (!status || !["approved", "rejected", "pending"].includes(status)) {
+      return res.status(400).json({ message: "Valid status ('approved', 'rejected', or 'pending') is required" });
+    }
 
-    // 🔥 Find embedded registration
-    const embeddedReg = event.registrations.id(req.params.id);
-    if (!embeddedReg)
-      return res.status(404).json({ message: "Embedded registration not found" });
+    const regId = req.params.id;
 
-    embeddedReg.status = status;
-    await event.save();
-
-    // 🔥 Update main registration collection
-    const registration = await Registration.findById(req.params.id);
-    if (!registration)
+    // Update in Registration collection
+    const registration = await Registration.findById(regId);
+    if (!registration) {
       return res.status(404).json({ message: "Registration record not found" });
+    }
 
     registration.status = status;
     await registration.save();
 
-    res.json({ message: `Registration ${status}`, registration });
+    // Update in embedded Event registrations array
+    await Event.updateOne(
+      { "registrations._id": regId },
+      { $set: { "registrations.$.status": status } }
+    );
+
+    res.json({
+      success: true,
+      message: `Registration marked as ${status}`,
+      registration,
+    });
   } catch (err) {
     console.error("Approve/Reject Error:", err);
     res.status(500).json({ message: "Server error", error: err.message });
@@ -124,19 +141,22 @@ export const updateRegistrationStatus = async (req, res) => {
 /* ================= DELETE REGISTRATION (ADMIN) ================= */
 export const deleteRegistration = async (req, res) => {
   try {
-    const event = await Event.findOne({ "registrations._id": req.params.id });
-    if (!event) return res.status(404).json({ message: "Event not found" });
+    const regId = req.params.id;
+    const registration = await Registration.findByIdAndDelete(regId);
 
-    const embeddedReg = event.registrations.id(req.params.id);
-    if (!embeddedReg) return res.status(404).json({ message: "Registration not found" });
+    if (!registration) {
+      return res.status(404).json({ message: "Registration not found" });
+    }
 
-    await Registration.findByIdAndDelete(req.params.id);
+    // Remove from event's embedded registrations array
+    await Event.updateOne(
+      { _id: registration.event },
+      { $pull: { registrations: { _id: regId } } }
+    );
 
-    embeddedReg.remove();
-    await event.save();
-
-    res.json({ message: "Registration deleted" });
+    res.json({ success: true, message: "Registration deleted successfully" });
   } catch (err) {
+    console.error("Delete registration error:", err);
     res.status(500).json({ message: "Server error", error: err.message });
   }
 };
