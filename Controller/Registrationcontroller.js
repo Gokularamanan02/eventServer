@@ -4,21 +4,24 @@ import Event from "../models/Event.js";
 /* ================= CREATE REGISTRATION ================= */
 export const createRegistration = async (req, res) => {
   try {
-    const { college, department, year, phone } = req.body;
+    const college = (req.body.college || req.body.collegeName || "").trim();
+    const phone = (req.body.phone || req.body.phoneNumber || "").trim();
+    const department = (req.body.department || "").trim();
+    const year = (req.body.year || req.body.yearOfStudy || "").trim();
     const eventId = req.params.eventId;
 
     if (!college || !phone) {
-      return res.status(400).json({ message: "College name and phone number are required" });
+      return res.status(400).json({ success: false, message: "College name and phone number are required" });
     }
 
     const event = await Event.findById(eventId);
     if (!event) {
-      return res.status(404).json({ message: "Event not found" });
+      return res.status(404).json({ success: false, message: "Event not found" });
     }
 
     // Check capacity if set
     if (event.capacity && event.registrations && event.registrations.length >= event.capacity) {
-      return res.status(400).json({ message: "Event capacity has been reached" });
+      return res.status(400).json({ success: false, message: "Event capacity has been reached" });
     }
 
     // Check if user already registered for this event
@@ -28,7 +31,7 @@ export const createRegistration = async (req, res) => {
     });
 
     if (existing) {
-      return res.status(400).json({ message: "You have already registered for this event" });
+      return res.status(400).json({ success: false, message: "You have already registered for this event" });
     }
 
     // Create registration in collection
@@ -36,29 +39,30 @@ export const createRegistration = async (req, res) => {
       eventName: event.title,
       event: eventId,
       user: req.user._id,
-      college: college.trim(),
-      department: department ? department.trim() : "",
-      year: year ? year.trim() : "",
-      phone: phone.trim(),
+      college: college,
+      department: department,
+      year: year,
+      phone: phone,
       status: "pending",
     });
 
     // Also push to embedded registrations on Event document
+    if (!event.registrations) event.registrations = [];
     event.registrations.push({
       _id: registration._id,
       user: req.user._id,
-      college: college.trim(),
-      department: department ? department.trim() : "",
-      year: year ? year.trim() : "",
-      phone: phone.trim(),
-      status: "pending",
+      college: college,
+      department: department,
+      year: year,
+      phone: phone,
+      registeredAt: new Date(),
     });
-
     await event.save();
 
     res.status(201).json({
       success: true,
-      message: "Registration submitted successfully",
+      message: "Successfully registered for event!",
+      data: registration,
       registration,
     });
   } catch (err) {

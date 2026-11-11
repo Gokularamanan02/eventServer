@@ -100,17 +100,23 @@ const seedAdmin = async () => {
     let adminUser = await User.findOne({ email: adminEmail });
 
     if (!adminUser) {
-      const hashedPassword = await bcrypt.hash("Admin@123", 10);
       adminUser = new User({
         name: "Symposium Admin",
         email: adminEmail,
-        password: hashedPassword,
+        password: "Admin@123",
         role: "admin",
       });
       await adminUser.save();
       console.log("✅ Default admin user created (admin@example.com / Admin@123)");
     } else {
-      console.log("ℹ️ Admin user already exists");
+      const validMatch = await adminUser.comparePassword("Admin@123");
+      if (!validMatch) {
+        adminUser.password = "Admin@123";
+        await adminUser.save();
+        console.log("✅ Admin password reset to valid hash (admin@example.com / Admin@123)");
+      } else {
+        console.log("ℹ️ Admin user already exists with verified credentials");
+      }
     }
 
     // Also seed default events if none exist
