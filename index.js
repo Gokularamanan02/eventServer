@@ -128,7 +128,7 @@ const seedAdmin = async () => {
 
 /* ================= START SERVER ================= */
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 
 if (process.env.MONGO_URI) {
   mongoose
@@ -153,3 +153,4 @@ if (process.env.MONGO_URI) {
     console.log(`🚀 Server running on port ${PORT}`);
   });
 }
+
